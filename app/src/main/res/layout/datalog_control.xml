@@ -22,20 +22,68 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textAppearance="?android:attr/textAppearanceMedium"
-        android:text="EZ-Link MAC:"
+        android:textAppearance="@android:style/TextAppearance.DeviceDefault.Small"
+        android:text="  EZ-Link MAC:"
         android:id="@+id/txtMacLabel"
-        android:layout_above="@+id/btnBluetoothToggle"
+        android:layout_alignTop="@+id/txtMAC"
         android:layout_alignParentStart="true" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textAppearance="?android:attr/textAppearanceMedium"
+        android:textAppearance="?android:attr/textAppearanceSmall"
         android:text="n/a"
         android:id="@+id/txtMAC"
         android:layout_toEndOf="@+id/txtMacLabel"
         android:layout_above="@+id/btnBluetoothToggle"
-        android:layout_alignEnd="@+id/btnBluetoothToggle" />
+        android:layout_alignParentEnd="true"
+        />
+
+
+
+    <ListView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/lstViewResponses"
+        android:layout_alignParentStart="true"
+        android:visibility="visible"
+        android:layout_above="@+id/txtMacLabel"
+        android:clickable="false"
+        android:listSelector="@android:color/transparent"
+        android:layout_below="@+id/btnClearLogging"
+        android:layout_margin="7dp"/>
+
+    <Button
+        style="?android:attr/buttonStyleSmall"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Clear"
+        android:id="@+id/btnClearLogging"
+        android:layout_below="@+id/btnSingleCapture"
+        android:layout_alignParentStart="true"
+        android:layout_alignEnd="@+id/btnSingleCapture" />
+
+    <ToggleButton
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Continuous Capture"
+        android:id="@+id/btnContinuousCapture"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentEnd="true"
+        android:textOff="Continuous Capture"
+        android:textOn="Continuous Capture"
+        android:enabled="false"/>
+
+    <Button
+        style="?android:attr/buttonStyleSmall"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Single Capture"
+        android:id="@+id/btnSingleCapture"
+        android:layout_below="@+id/btnContinuousCapture"
+        android:layout_alignEnd="@+id/btnContinuousCapture"
+        android:layout_alignParentStart="true"
+        android:enabled="false" />
 
 </RelativeLayout>

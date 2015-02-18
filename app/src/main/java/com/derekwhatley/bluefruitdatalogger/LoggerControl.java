@@ -4,31 +4,57 @@ import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.Context;
 import android.content.Intent;
+import android.os.AsyncTask;
 import android.os.Bundle;
-import android.util.Log;
+import android.os.Handler;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.SeekBar;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
-import android.os.AsyncTask;
 
 import com.derekwhatley.bluefruitcontroller.R;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.UUID;
 
 
 public class LoggerControl extends Activity {
+    //controls
     private TextView mTxtMAC;
     private ToggleButton mBluetoothToggle;
     private BluetoothAdapter mBluetoothAdapter;
     private BluetoothSocket mBluetoothSocket;
+    private ToggleButton mBtnContinuousCapture;
+    private Button mBtnSingleCapture;
+    private Button mBtnClearLogging;
+    private ListView mListViewResponses;
+    ArrayAdapter<String> dataItemsAdapter;
+    ArrayList<SensorData> arrayOfSensorData;
+    SensorDataAdapter adapter;
+
+    //vars
+    private InputStream bluetoothInputStream;
+
+
+    //vars from read code
+    private boolean stopWorker;
+    InputStream mmInputStream;
+    Thread workerThread;
+    byte[] readBuffer;
+    int readBufferPosition;
 
     //callbacks
     final int REQUEST_ENABLE_BT = 1;
@@ -54,10 +80,16 @@ public class LoggerControl extends Activity {
             if(result == true) {
                 mTxtMAC.setText(getMACAddress());
                 mBluetoothToggle.setChecked(true);
+                mBtnContinuousCapture.setEnabled(true);
+                mBtnSingleCapture.setEnabled(true);
+                Toast.makeText(getBaseContext(), "Connected", Toast.LENGTH_SHORT).show();
+                beginListenForData();
             }
             else {
                 Toast.makeText(getBaseContext(), "Connection failed", Toast.LENGTH_SHORT).show();
                 mBluetoothToggle.setChecked(false);
+                mBtnContinuousCapture.setEnabled(false);
+                mBtnSingleCapture.setEnabled(false);
             }
         }
     }
@@ -69,8 +101,19 @@ public class LoggerControl extends Activity {
 
         mTxtMAC = (TextView) findViewById(R.id.txtMAC);
         mBluetoothToggle = (ToggleButton) findViewById(R.id.btnBluetoothToggle);
+        mBtnContinuousCapture = (ToggleButton) findViewById(R.id.btnContinuousCapture);
+        mBtnSingleCapture = (Button) findViewById(R.id.btnSingleCapture);
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        mListViewResponses = (ListView) findViewById(R.id.lstViewResponses);
+        mBtnClearLogging = (Button) findViewById(R.id.btnClearLogging);
 
+        //attach view adapter
+        // Construct the data source
+        arrayOfSensorData = new ArrayList<SensorData>();
+        // Create the adapter to convert the array to views
+        adapter = new SensorDataAdapter(this, arrayOfSensorData);
+        // Attach the adapter to a ListView
+        mListViewResponses.setAdapter(adapter);
 
         if (mBluetoothSocket != null) {
             if (mBluetoothAdapter.isEnabled()) {
@@ -78,6 +121,35 @@ public class LoggerControl extends Activity {
                 SerialStarter.execute(mBluetoothAdapter);
             }
         }
+
+        mBtnClearLogging.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+               adapter.clear();
+            }
+        });
+
+        mBtnContinuousCapture.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if(mBtnContinuousCapture.isChecked()) {
+                    mBtnSingleCapture.setEnabled(false);
+                    sendBTData("start\n".getBytes());
+                }
+                else {
+                    mBtnSingleCapture.setEnabled(true);
+                    sendBTData("stop\n".getBytes());
+                }
+
+            }
+        });
+
+        mBtnSingleCapture.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                sendBTData("single\n".getBytes());
+            }
+        });
 
         mBluetoothToggle.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -97,13 +169,21 @@ public class LoggerControl extends Activity {
                 } else {
                     //user wants to turn off connection
                     try {
+                        sendBTData("stop\n".getBytes());
+                        stopWorker = true;
+                        mmInputStream.close();
                         mBluetoothSocket.close();
                         mTxtMAC.setText("n/a");
+                        mBtnContinuousCapture.setEnabled(false);
+                        mBtnContinuousCapture.setChecked(false);
+                        mBtnSingleCapture.setEnabled(false);
                     } catch (IOException e) {
                         //not much to be done
                         Toast.makeText(getBaseContext(), "Failed to close connection.", Toast.LENGTH_SHORT).show();
                         //don't change the button state if we failed to connect
                         mBluetoothToggle.setChecked(true);
+                        mBtnContinuousCapture.setEnabled(true);
+                        mBtnSingleCapture.setEnabled(true);
                     }
                     mBluetoothToggle.setEnabled(true);
                 }
@@ -118,6 +198,7 @@ public class LoggerControl extends Activity {
                 try {
                     OutputStream btOut = mBluetoothSocket.getOutputStream();
                     btOut.write(data);
+                    //btOut.close();
                 }
                 catch (IOException e) {
                     //not much to do here
@@ -126,6 +207,67 @@ public class LoggerControl extends Activity {
             }
         }
     }
+
+    void beginListenForData()
+    {
+        final Handler handler = new Handler();
+        final byte delimiter = 10; //This is the ASCII code for a newline character
+
+        stopWorker = false;
+        readBufferPosition = 0;
+        readBuffer = new byte[1024];
+        workerThread = new Thread(new Runnable()
+        {
+            public void run()
+            {
+                while(!Thread.currentThread().isInterrupted() && !stopWorker)
+                {
+                    try
+                    {
+                        int bytesAvailable = mmInputStream.available();
+                        if(bytesAvailable > 0)
+                        {
+                            byte[] packetBytes = new byte[bytesAvailable];
+                            mmInputStream.read(packetBytes);
+                            for(int i=0;i<bytesAvailable;i++)
+                            {
+                                byte b = packetBytes[i];
+                                if(b == delimiter)
+                                {
+                                    byte[] encodedBytes = new byte[readBufferPosition];
+                                    System.arraycopy(readBuffer, 0, encodedBytes, 0, encodedBytes.length);
+                                    final String data = new String(encodedBytes, "US-ASCII");
+                                    readBufferPosition = 0;
+
+                                    handler.post(new Runnable()
+                                    {
+                                        public void run()
+                                        {
+                                            //mTxtMAC.setText(data);
+                                            SensorData sensorData = new SensorData(data, "");
+                                            adapter.add(sensorData);
+                                            mListViewResponses.smoothScrollToPosition(adapter.getCount());
+                                        }
+                                    });
+                                }
+                                else
+                                {
+                                    readBuffer[readBufferPosition++] = b;
+                                }
+                            }
+                        }
+                    }
+                    catch (IOException ex)
+                    {
+                        stopWorker = true;
+                    }
+                }
+            }
+        });
+
+        workerThread.start();
+    }
+
 
     private String getMACAddress() {
         Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
@@ -148,6 +290,7 @@ public class LoggerControl extends Activity {
                 if(device.getName().contains(DEVICE_IDENTIFIER)) {
                     try {
                         mBluetoothSocket = device.createRfcommSocketToServiceRecord(UUID.fromString(SPP_UUID));
+                        mmInputStream = mBluetoothSocket.getInputStream();
                     }
                     catch (IOException e) {
                         //no handling for now.
@@ -184,6 +327,31 @@ public class LoggerControl extends Activity {
             }
         }
     }
+
+    public class SensorDataAdapter extends ArrayAdapter<SensorData> {
+        public SensorDataAdapter(Context context, ArrayList<SensorData> SensorDataPoints) {
+            super(context, 0, SensorDataPoints);
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            // Get the data item for this position
+            SensorData sensorData = getItem(position);
+            // Check if an existing view is being reused, otherwise inflate the view
+            if (convertView == null) {
+                convertView = LayoutInflater.from(getContext()).inflate(R.layout.item_sensor_data, parent, false);
+            }
+            // Lookup view for data population
+            TextView tvValue1 = (TextView) convertView.findViewById(R.id.tvValue1);
+            TextView tvValue2 = (TextView) convertView.findViewById(R.id.tvValue2);
+            // Populate the data into the template view using the data object
+            tvValue1.setText(sensorData.value1);
+            tvValue2.setText(sensorData.value2);
+            // Return the completed view to render on screen
+            return convertView;
+        }
+    }
+
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         // Inflate the menu; this adds items to the action bar if it is present.
