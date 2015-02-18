@@ -1,4 +1,4 @@
-package com.derekwhatley.bluefruitcontroller;
+package com.derekwhatley.bluefruitdatalogger;
 
 import android.app.Application;
 import android.test.ApplicationTestCase;
